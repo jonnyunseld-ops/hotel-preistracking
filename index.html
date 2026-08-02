@@ -1,0 +1,405 @@
+<!DOCTYPE html>
+<html lang="de">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Hotel-Preistracking</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.min.js"></script>
+<style>
+  :root {
+    --ink: #1d1d1f;
+    --muted: #77777c;
+    --faint: #a9a9ae;
+    --green: #248a52;
+    --green-bg: rgba(52,199,89,.14);
+    --red: #c93a34;
+    --red-bg: rgba(255,59,48,.12);
+    --glass: rgba(255,255,255,.58);
+    --glass-strong: rgba(255,255,255,.72);
+    --hairline: rgba(255,255,255,.75);
+    --shadow: 0 1px 1px rgba(20,20,30,.03), 0 8px 24px rgba(20,20,30,.07), 0 24px 60px rgba(20,20,30,.06);
+  }
+  * { margin:0; padding:0; box-sizing:border-box; }
+  html { -webkit-font-smoothing: antialiased; }
+  body {
+    font-family: -apple-system, BlinkMacSystemFont, "SF Pro Text", "Segoe UI", sans-serif;
+    color: var(--ink);
+    min-height: 100vh;
+    padding: clamp(24px,4vw,52px) clamp(16px,3vw,32px) 80px;
+    background: #f2f2f6;
+    background-image:
+      radial-gradient(900px 600px at 12% -8%, rgba(140,170,255,.22), transparent 60%),
+      radial-gradient(800px 560px at 95% 5%, rgba(255,180,120,.18), transparent 60%),
+      radial-gradient(900px 700px at 50% 110%, rgba(150,220,180,.16), transparent 60%);
+    background-attachment: fixed;
+  }
+  .shell { max-width: 1060px; margin: 0 auto; }
+
+  header { display:flex; justify-content:space-between; align-items:flex-end; flex-wrap:wrap; gap:12px; margin-bottom:24px; padding:0 6px; }
+  h1 { font-size: clamp(24px,3vw,32px); font-weight:700; letter-spacing:-.02em; }
+  header p { color: var(--muted); font-size:13.5px; margin-top:5px; }
+
+  /* Tabs — Segmented Glass */
+  .tabs {
+    display:inline-flex; gap:4px; padding:5px; margin-bottom:22px;
+    background: rgba(120,120,128,.12);
+    border-radius: 100px;
+    backdrop-filter: blur(20px) saturate(1.4); -webkit-backdrop-filter: blur(20px) saturate(1.4);
+    flex-wrap:wrap;
+  }
+  .tab {
+    border:0; background:transparent; color:var(--muted);
+    padding:9px 20px; border-radius:100px; font-size:14px; font-weight:590;
+    cursor:pointer; transition: all .25s cubic-bezier(.2,.6,.2,1); font-family:inherit;
+  }
+  .tab:hover { color: var(--ink); }
+  .tab.active {
+    background: var(--glass-strong); color: var(--ink);
+    box-shadow: inset 0 0 0 .5px var(--hairline), 0 2px 8px rgba(20,20,30,.10);
+  }
+
+  .card {
+    background: var(--glass);
+    backdrop-filter: blur(28px) saturate(1.6); -webkit-backdrop-filter: blur(28px) saturate(1.6);
+    border-radius: 26px;
+    box-shadow: inset 0 0 0 .5px var(--hairline), var(--shadow);
+    padding: clamp(20px,2.6vw,30px);
+    margin-bottom: 18px;
+    position: relative; overflow: hidden;
+  }
+  .card::before { /* Glanzkante oben */
+    content:""; position:absolute; top:0; left:8%; right:8%; height:1px;
+    background: linear-gradient(90deg, transparent, rgba(255,255,255,.95), transparent);
+  }
+
+  .ziel-head { display:flex; justify-content:space-between; align-items:baseline; flex-wrap:wrap; gap:8px; margin-bottom:20px; }
+  .ziel-head h2 { font-size:20px; font-weight:680; letter-spacing:-.01em; }
+  .ziel-head span { color:var(--muted); font-size:13px; }
+
+  /* Hotel-Karten */
+  .stats { display:grid; grid-template-columns:repeat(auto-fit,minmax(250px,1fr)); gap:12px; margin-bottom:22px; }
+  .stat {
+    background: var(--glass-strong);
+    border-radius: 18px; padding: 0 0 15px;
+    box-shadow: inset 0 0 0 .5px var(--hairline), 0 1px 4px rgba(20,20,30,.05);
+    display:flex; flex-direction:column; gap:7px; min-width:0; overflow:hidden;
+  }
+  .stat .foto { width:100%; aspect-ratio:16/9; object-fit:cover; display:block; }
+  .stat .body { padding: 12px 18px 0; display:flex; flex-direction:column; gap:7px; min-width:0; }
+  .stat .hrow { display:flex; align-items:center; gap:8px; min-width:0; }
+  .stat .dot { width:9px; height:9px; border-radius:99px; flex-shrink:0; }
+  .stat .hname { font-size:13.5px; font-weight:620; letter-spacing:-.005em; line-height:1.3; overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .stat .preis { font-size:26px; font-weight:700; letter-spacing:-.025em; white-space:nowrap; font-variant-numeric:tabular-nums; line-height:1.1; }
+  .stat .preis .dash { color: var(--faint); font-weight:600; }
+  .chips { display:flex; gap:6px; flex-wrap:wrap; }
+  .chip {
+    display:inline-flex; align-items:center; gap:4px; white-space:nowrap;
+    font-size:11.5px; font-weight:620; padding:3.5px 10px; border-radius:100px;
+    background: rgba(120,120,128,.12); color: var(--muted);
+  }
+  .chip.down { background: var(--green-bg); color: var(--green); }
+  .chip.up { background: var(--red-bg); color: var(--red); }
+  .stat .sub { font-size:11.5px; color:var(--faint); line-height:1.45; }
+
+  .chart-wrap { position:relative; height:330px; margin-top:4px; }
+
+  h3 { font-size:15px; font-weight:650; margin-bottom:14px; letter-spacing:-.01em; }
+  .twrap { overflow-x:auto; }
+  table { width:100%; border-collapse:collapse; font-size:13px; min-width:640px; }
+  th { text-align:left; color:var(--faint); font-weight:560; font-size:11.5px; text-transform:uppercase; letter-spacing:.05em;
+       padding:8px 12px; border-bottom:1px solid rgba(60,60,67,.10); white-space:nowrap; }
+  td { padding:11px 12px; border-bottom:1px solid rgba(60,60,67,.07); vertical-align:top; }
+  tr:last-child td { border-bottom:none; }
+  tbody tr { transition: background .15s; }
+  tbody tr:hover { background: rgba(255,255,255,.5); }
+  td.num { font-variant-numeric:tabular-nums; font-weight:650; white-space:nowrap; }
+  td.datum { white-space:nowrap; color:var(--muted); font-variant-numeric:tabular-nums; }
+  td.hotel { font-weight:590; white-space:nowrap; }
+  td.notiz { color:var(--muted); font-size:12px; line-height:1.5; min-width:220px; }
+  td.quelle { color:var(--muted); font-size:12.5px; white-space:nowrap; }
+  .pill { display:inline-block; padding:3px 10px; border-radius:100px; font-size:11px; font-weight:600;
+          background:rgba(120,120,128,.12); color:var(--muted); white-space:nowrap; }
+  .pill.gruen { background:var(--green-bg); color:var(--green); }
+  .empty { color:var(--muted); text-align:center; padding:40px 0; font-size:14px; }
+</style>
+
+<!-- ===== vom publish/build.py injiziert — nicht von Hand bearbeiten ===== -->
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Preistracking">
+<meta name="theme-color" content="#f2f2f6">
+<meta name="robots" content="noindex, nofollow">
+<link rel="apple-touch-icon" href="icon.png">
+<style>
+  @media (max-width: 700px) {
+    /* Safe-Area fuer iPhone mit Notch / Dynamic Island */
+    body {
+      padding-top: 20px;
+      padding-left: max(14px, env(safe-area-inset-left));
+      padding-right: max(14px, env(safe-area-inset-right));
+      padding-bottom: calc(56px + env(safe-area-inset-bottom));
+    }
+    .shell { max-width: 100%; }
+    header { margin-bottom: 16px; padding: 0 2px; }
+    h1 { font-size: 23px; }
+    header p { font-size: 12.5px; }
+
+    /* Tabs: horizontal scrollbar statt Umbruch */
+    .tabs {
+      display: flex; flex-wrap: nowrap; width: 100%;
+      overflow-x: auto; -webkit-overflow-scrolling: touch;
+      scrollbar-width: none; margin-bottom: 16px; border-radius: 100px;
+    }
+    .tabs::-webkit-scrollbar { display: none; }
+    .tab { flex: 0 0 auto; padding: 8px 15px; font-size: 13.5px; }
+
+    .card { border-radius: 20px; padding: 16px 14px; margin-bottom: 14px; }
+    .ziel-head { margin-bottom: 14px; }
+    .ziel-head h2 { font-size: 18px; }
+    .ziel-head span { font-size: 12px; }
+
+    /* Hotelkarten einspaltig, Bild flacher */
+    .stats { grid-template-columns: 1fr; gap: 10px; margin-bottom: 16px; }
+    .stat .foto { aspect-ratio: 21/9; }
+    .stat .body { padding: 11px 14px 0; }
+    .stat .preis { font-size: 23px; }
+    .stat .hname { white-space: normal; }
+
+    .chart-wrap { height: 250px; }
+
+    th { padding: 7px 9px; }
+    td { padding: 9px 9px; }
+    .twrap { -webkit-overflow-scrolling: touch; }
+
+    /* backdrop-filter ist auf aelteren iPhones teuer -> abschwaechen */
+    .card, .stat {
+      backdrop-filter: blur(14px) saturate(1.3);
+      -webkit-backdrop-filter: blur(14px) saturate(1.3);
+    }
+  }
+
+  /* Dark Mode, damit es nachts auf dem iPhone nicht blendet */
+  @media (prefers-color-scheme: dark) {
+    :root {
+      --ink: #f2f2f7; --muted: #9a9aa0; --faint: #6e6e76;
+      --green: #4cd07d; --green-bg: rgba(52,199,89,.18);
+      --red: #ff6b61;  --red-bg: rgba(255,59,48,.18);
+      --glass: rgba(30,30,34,.62); --glass-strong: rgba(44,44,49,.78);
+      --hairline: rgba(255,255,255,.10);
+    }
+    body {
+      background: #000;
+      background-image:
+        radial-gradient(900px 600px at 12% -8%, rgba(90,120,220,.20), transparent 60%),
+        radial-gradient(800px 560px at 95% 5%, rgba(200,130,80,.14), transparent 60%),
+        radial-gradient(900px 700px at 50% 110%, rgba(80,170,130,.12), transparent 60%);
+    }
+    th { border-bottom-color: rgba(255,255,255,.12); }
+    td { border-bottom-color: rgba(255,255,255,.07); }
+    tbody tr:hover { background: rgba(255,255,255,.05); }
+    .tabs { background: rgba(120,120,128,.20); }
+    .chip, .pill { background: rgba(120,120,128,.22); }
+  }
+
+  /* Notiz-Spalte (6.) ausblenden — die Freitexte werden nicht veroeffentlicht */
+  th:nth-child(6), td:nth-child(6) { display: none; }
+  table { min-width: 420px; }
+
+  .stand-fuss {
+    text-align: center; color: var(--faint); font-size: 11.5px;
+    padding: 6px 0 4px; line-height: 1.6;
+  }
+</style>
+<!-- ===== Ende injizierter Block ===== -->
+</head>
+<body>
+<div class="shell">
+<header>
+  <div>
+    <h1>Hotel-Preistracking</h1>
+    <p id="meta"></p>
+  </div>
+</header>
+<div class="tabs" id="tabs"></div>
+<div class="card">
+  <div class="ziel-head"><h2 id="zielLabel"></h2><span id="zielSub"></span></div>
+  <div class="stats" id="stats"></div>
+  <div class="chart-wrap"><canvas id="chart"></canvas></div>
+</div>
+<div class="card">
+  <h3>Verlauf <span style="color:var(--faint); font-weight:500">— neueste zuerst</span></h3>
+  <div class="twrap" id="tableWrap"></div>
+</div>
+</div>
+
+<script src="preistracking-daten.js?v=20260802101759"></script>
+<script>
+const CFG = window.PRICE_CONFIG.ziele;
+const ENTRIES = window.PRICE_ENTRIES.slice();
+const PALETTE = ["#1d1d1f", "#b0895b", "#5b7fb0", "#6aa084", "#a05b7f", "#8a8a8e"];
+const fmt = v => v == null ? "–" : v.toLocaleString("de-DE", { minimumFractionDigits: 2, maximumFractionDigits: 2 }) + " €";
+const fmt0 = v => v == null ? "–" : Math.round(v).toLocaleString("de-DE") + " €";
+const dShort = d => { const [y,m,t] = d.split("-"); return t + "." + m + "." + y.slice(2); };
+
+let active = Object.keys(CFG)[0];
+let chart = null;
+
+document.getElementById("meta").textContent =
+  ENTRIES.length + " Datenpunkte · letzter Eintrag: " + dShort(ENTRIES.map(e => e.d).sort().at(-1));
+
+function renderTabs() {
+  const el = document.getElementById("tabs");
+  el.innerHTML = "";
+  for (const id of Object.keys(CFG)) {
+    const b = document.createElement("button");
+    b.className = "tab" + (id === active ? " active" : "");
+    b.textContent = CFG[id].label;
+    b.onclick = () => { active = id; render(); };
+    el.appendChild(b);
+  }
+}
+
+function render() {
+  renderTabs();
+  const cfg = CFG[active];
+  document.getElementById("zielLabel").textContent = cfg.label;
+  document.getElementById("zielSub").textContent = cfg.untertitel || "";
+
+  const rows = ENTRIES.filter(e => e.ziel === active).sort((a, b) => a.d.localeCompare(b.d));
+  const hotels = [...new Set([...Object.keys(cfg.hotels || {}), ...rows.map(r => r.hotel)])];
+  const dates = [...new Set(rows.map(r => r.d))].sort();
+
+  // Hotel-Karten
+  const stats = document.getElementById("stats");
+  stats.innerHTML = "";
+  hotels.forEach((h, i) => {
+    const serie = rows.filter(r => r.hotel === h && r.preis != null);
+    const last = serie.at(-1), prev = serie.at(-2);
+    const ref = cfg.hotels?.[h]?.referenz ?? null;
+    const refLabel = cfg.hotels?.[h]?.referenzLabel || "Referenz";
+
+    const chips = [];
+    if (last && prev) {
+      const d = last.preis - prev.preis;
+      if (d === 0) chips.push('<span class="chip">±&nbsp;0&nbsp;€</span>');
+      else if (d < 0) chips.push('<span class="chip down">▼ ' + fmt0(Math.abs(d)) + '</span>');
+      else chips.push('<span class="chip up">▲ ' + fmt0(d) + '</span>');
+    }
+    if (ref != null && last && last.preis < ref) {
+      chips.push('<span class="chip down">' + fmt0(ref - last.preis) + ' unter Buchung</span>');
+    }
+
+    const subParts = [];
+    if (ref != null) subParts.push(refLabel + ": " + fmt(ref)); else subParts.push(refLabel);
+    if (last) subParts.push("Stand " + dShort(last.d));
+
+    const bild = cfg.hotels?.[h]?.bild;
+    const div = document.createElement("div");
+    div.className = "stat";
+    div.innerHTML =
+      (bild ? '<img class="foto" src="' + bild + '" alt="' + h + '" loading="lazy" onerror="this.remove()">' : "") +
+      '<div class="body">' +
+      '<div class="hrow"><span class="dot" style="background:' + PALETTE[i % PALETTE.length] + '"></span>' +
+      '<span class="hname" title="' + h + '">' + h + '</span></div>' +
+      '<div class="preis">' + (last ? fmt(last.preis) : '<span class="dash">–</span>') + '</div>' +
+      (chips.length ? '<div class="chips">' + chips.join("") + '</div>' : "") +
+      '<div class="sub">' + subParts.join(" · ") + '</div>' +
+      '</div>';
+    stats.appendChild(div);
+  });
+
+  // Chart — weiche Linien, Verläufe, ruhige Achsen
+  const ctx = document.getElementById("chart").getContext("2d");
+  const mkGradient = (hex) => {
+    const g = ctx.createLinearGradient(0, 0, 0, 330);
+    g.addColorStop(0, hex + "2e"); g.addColorStop(1, hex + "00");
+    return g;
+  };
+  const datasets = hotels.map((h, i) => {
+    const col = PALETTE[i % PALETTE.length];
+    return {
+      label: h,
+      data: dates.map(d => {
+        const hit = rows.filter(r => r.hotel === h && r.d === d && r.preis != null).at(-1);
+        return hit ? hit.preis : null;
+      }),
+      borderColor: col,
+      backgroundColor: mkGradient(col),
+      fill: true,
+      spanGaps: true, tension: .38, borderWidth: 2.5,
+      pointRadius: 5, pointHoverRadius: 7,
+      pointBackgroundColor: "#fff", pointBorderColor: col, pointBorderWidth: 2.5,
+      clip: 12
+    };
+  });
+  hotels.forEach((h, i) => {
+    const ref = cfg.hotels?.[h]?.referenz;
+    if (ref != null) {
+      datasets.push({
+        label: h + " · gebucht",
+        data: dates.map(() => ref),
+        borderColor: PALETTE[i % PALETTE.length] + "80",
+        borderDash: [5, 6], borderWidth: 1.5, pointRadius: 0, tension: 0, fill: false, clip: 12
+      });
+    }
+  });
+
+  if (chart) chart.destroy();
+  chart = new Chart(ctx, {
+    type: "line",
+    data: { labels: dates.map(dShort), datasets },
+    options: {
+      maintainAspectRatio: false,
+      layout: { padding: { top: 10, right: 14 } },
+      interaction: { mode: "nearest", intersect: false },
+      plugins: {
+        legend: {
+          labels: {
+            usePointStyle: true, pointStyle: "circle", boxWidth: 7, boxHeight: 7,
+            padding: 16, font: { size: 12, weight: 500 }, color: "#77777c",
+            filter: item => !item.text.includes("· gebucht")
+          }
+        },
+        tooltip: {
+          backgroundColor: "rgba(29,29,31,.92)", cornerRadius: 12, padding: 12,
+          titleFont: { size: 12, weight: 600 }, bodyFont: { size: 12.5 },
+          boxPadding: 5, usePointStyle: true,
+          callbacks: { label: c => " " + c.dataset.label + ": " + fmt(c.parsed.y) }
+        }
+      },
+      scales: {
+        y: {
+          border: { display: false },
+          grace: "12%",
+          ticks: { callback: v => fmt0(v), color: "#a9a9ae", font: { size: 11.5 }, maxTicksLimit: 6, padding: 8 },
+          grid: { color: "rgba(60,60,67,.08)", drawTicks: false }
+        },
+        x: {
+          border: { display: false },
+          ticks: { color: "#a9a9ae", font: { size: 11.5 }, padding: 6 },
+          grid: { display: false }
+        }
+      }
+    }
+  });
+
+  // Verlaufstabelle
+  const wrap = document.getElementById("tableWrap");
+  if (!rows.length) { wrap.innerHTML = '<div class="empty">Noch keine Einträge für dieses Ziel.</div>'; return; }
+  let html = "<table><thead><tr><th>Datum</th><th>Hotel</th><th>Preis gesamt</th><th>Rate</th><th>Quelle</th><th>Notiz</th></tr></thead><tbody>";
+  for (const r of rows.slice().reverse()) {
+    const pillClass = r.rate === "stornierbar" ? "pill gruen" : "pill";
+    html += '<tr><td class="datum">' + dShort(r.d) + '</td><td class="hotel">' + r.hotel +
+      '</td><td class="num">' + fmt(r.preis) +
+      '</td><td><span class="' + pillClass + '">' + (r.rate || "–") + "</span></td>" +
+      '<td class="quelle">' + (r.quelle || "–") + "</td>" +
+      '<td class="notiz">' + (r.notiz || "") + "</td></tr>";
+  }
+  wrap.innerHTML = html + "</tbody></table>";
+}
+render();
+</script>
+<div class="stand-fuss">Automatisch erzeugt am 02.08.2026, 12:17 Uhr<br>Quelle: 05_Reisen/preistracking-daten.js in iCloud</div>
+</body>
+</html>
