@@ -126,6 +126,44 @@
   a.angebot:hover { background:rgba(90,130,255,.24); }
   .pill.gruen { background:var(--green-bg); color:var(--green); }
   .empty { color:var(--muted); text-align:center; padding:40px 0; font-size:14px; }
+
+  /* ---- Verlauf als aufklappbare Zeilen (eine pro Hotel) ---- */
+  .acc { display:flex; flex-direction:column; }
+  .acc-item { border-bottom:1px solid rgba(60,60,67,.08); }
+  .acc-item:last-child { border-bottom:none; }
+  .acc-head {
+    display:flex; align-items:center; gap:12px; width:100%;
+    padding:13px 6px; background:none; border:none; cursor:pointer;
+    text-align:left; font:inherit; color:inherit; border-radius:12px;
+    transition:background .15s;
+  }
+  .acc-head:hover { background:rgba(120,120,128,.07); }
+  .acc-dot { width:9px; height:9px; border-radius:50%; flex:0 0 auto; }
+  .acc-name { font-weight:600; font-size:13.5px; flex:1 1 auto; min-width:0;
+              overflow:hidden; text-overflow:ellipsis; white-space:nowrap; }
+  .acc-preis { font-variant-numeric:tabular-nums; font-weight:660; font-size:14px; white-space:nowrap; }
+  .acc-meta { font-size:11.5px; color:var(--faint); white-space:nowrap; }
+  .acc-chev { flex:0 0 auto; color:var(--faint); font-size:15px; line-height:1;
+              transition:transform .2s ease; transform:rotate(0deg); }
+  .acc-item.open .acc-chev { transform:rotate(90deg); }
+  .acc-body { display:none; padding:2px 6px 14px; }
+  .acc-item.open .acc-body { display:block; }
+  .hist { display:flex; flex-direction:column; gap:2px; }
+  .hrowline {
+    display:grid; grid-template-columns:64px 92px auto 1fr auto; align-items:center;
+    gap:10px; padding:8px 10px; border-radius:10px; font-size:12.5px;
+  }
+  .hrowline:nth-child(odd) { background:rgba(120,120,128,.05); }
+  .hrowline .hd { color:var(--muted); font-variant-numeric:tabular-nums; white-space:nowrap; }
+  .hrowline .hp { font-variant-numeric:tabular-nums; font-weight:640; white-space:nowrap; }
+  .hrowline .hq { color:var(--faint); font-size:11.5px; overflow:hidden;
+                  text-overflow:ellipsis; white-space:nowrap; }
+  .hnote { grid-column:1 / -1; color:var(--muted); font-size:11.5px; line-height:1.55;
+           padding-top:6px; white-space:normal; }
+  @media (max-width:700px) {
+    .hrowline { grid-template-columns:58px 84px auto; }
+    .hrowline .hq { grid-column:1 / -1; }
+  }
 </style>
 
 <!-- ===== vom publish/build.py injiziert — nicht von Hand bearbeiten ===== -->
@@ -233,12 +271,12 @@
   <div class="chart-wrap"><canvas id="chart"></canvas></div>
 </div>
 <div class="card">
-  <h3>Verlauf <span style="color:var(--faint); font-weight:500">— neueste zuerst</span></h3>
-  <div class="twrap" id="tableWrap"></div>
+  <h3>Verlauf <span style="color:var(--faint); font-weight:500">— pro Hotel, zum Aufklappen antippen</span></h3>
+  <div id="tableWrap"></div>
 </div>
 </div>
 
-<script src="preistracking-daten.js?v=20260814073601"></script>
+<script src="preistracking-daten.js?v=20260815094013"></script>
 <script>
 const CFG = window.PRICE_CONFIG.ziele;
 const ENTRIES = window.PRICE_ENTRIES.slice();
@@ -249,6 +287,8 @@ const dShort = d => { const [y,m,t] = d.split("-"); return t + "." + m + "." + y
 
 let active = Object.keys(CFG)[0];
 let chart = null;
+// Welche Hotel-Zeilen im Verlauf gerade aufgeklappt sind (überlebt Re-Render)
+const wasOpen = new Set();
 
 document.getElementById("meta").textContent =
   ENTRIES.length + " Datenpunkte · letzter Eintrag: " + dShort(ENTRIES.map(e => e.d).sort().at(-1));
@@ -358,6 +398,25 @@ function render() {
       maintainAspectRatio: false,
       layout: { padding: { top: 10, right: 14 } },
       interaction: { mode: "nearest", intersect: false },
+      // Klick auf einen Punkt öffnet das hinterlegte Angebot
+      onClick: (evt, els) => {
+        if (!els.length) return;
+        const { datasetIndex, index } = els[0];
+        if (datasetIndex >= hotels.length) return;   // gestrichelte Referenzlinie
+        const treffer = rows.filter(
+          r => r.hotel === hotels[datasetIndex] && r.d === dates[index] && r.link
+        ).at(-1);
+        if (treffer) window.open(treffer.link, "_blank", "noopener,noreferrer");
+      },
+      onHover: (evt, els) => {
+        const klickbar = els.some(e => {
+          if (e.datasetIndex >= hotels.length) return false;
+          return rows.some(
+            r => r.hotel === hotels[e.datasetIndex] && r.d === dates[e.index] && r.link
+          );
+        });
+        evt.native.target.style.cursor = klickbar ? "pointer" : "default";
+      },
       plugins: {
         legend: {
           labels: {
@@ -370,7 +429,16 @@ function render() {
           backgroundColor: "rgba(29,29,31,.92)", cornerRadius: 12, padding: 12,
           titleFont: { size: 12, weight: 600 }, bodyFont: { size: 12.5 },
           boxPadding: 5, usePointStyle: true,
-          callbacks: { label: c => " " + c.dataset.label + ": " + fmt(c.parsed.y) }
+          callbacks: {
+            label: c => " " + c.dataset.label + ": " + fmt(c.parsed.y),
+            afterLabel: c => {
+              if (c.datasetIndex >= hotels.length) return "";
+              const t = rows.filter(
+                r => r.hotel === hotels[c.datasetIndex] && r.d === dates[c.dataIndex] && r.link
+              ).at(-1);
+              return t ? " Klicken → Angebot öffnen" : "";
+            }
+          }
         }
       },
       scales: {
@@ -389,26 +457,68 @@ function render() {
     }
   });
 
-  // Verlaufstabelle
+  // Verlauf — eine aufklappbare Zeile pro Hotel
   const wrap = document.getElementById("tableWrap");
   if (!rows.length) { wrap.innerHTML = '<div class="empty">Noch keine Einträge für dieses Ziel.</div>'; return; }
-  let html = "<table><thead><tr><th>Datum</th><th>Hotel</th><th>Preis gesamt</th><th>Rate</th><th>Quelle</th><th>Angebot</th><th>Notiz</th></tr></thead><tbody>";
-  for (const r of rows.slice().reverse()) {
-    const pillClass = r.rate === "stornierbar" ? "pill gruen" : "pill";
-    const linkCell = r.link
-      ? '<a class="angebot" href="' + r.link + '" target="_blank" rel="noopener noreferrer">öffnen ↗</a>'
-      : '<span style="color:var(--faint)">–</span>';
-    html += '<tr><td class="datum">' + dShort(r.d) + '</td><td class="hotel">' + r.hotel +
-      '</td><td class="num">' + fmt(r.preis) +
-      '</td><td><span class="' + pillClass + '">' + (r.rate || "–") + "</span></td>" +
-      '<td class="quelle">' + (r.quelle || "–") + "</td>" +
-      '<td class="link">' + linkCell + "</td>" +
-      '<td class="notiz">' + (r.notiz || "") + "</td></tr>";
-  }
-  wrap.innerHTML = html + "</tbody></table>";
+
+  const esc = s => String(s == null ? "" : s)
+    .replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;");
+
+  let html = '<div class="acc">';
+  hotels.forEach((h, i) => {
+    const hist = rows.filter(r => r.hotel === h);
+    if (!hist.length) return;
+    const col = PALETTE[i % PALETTE.length];
+    const letzter = hist.at(-1);
+    const mitPreis = hist.filter(r => r.preis != null);
+    const jung = mitPreis.at(-1);
+    const offen = wasOpen.has(h);
+
+    html +=
+      '<div class="acc-item' + (offen ? " open" : "") + '" data-hotel="' + esc(h) + '">' +
+        '<button class="acc-head" type="button" aria-expanded="' + (offen ? "true" : "false") + '">' +
+          '<span class="acc-dot" style="background:' + col + '"></span>' +
+          '<span class="acc-name">' + esc(h) + '</span>' +
+          '<span class="acc-preis">' + (jung ? fmt(jung.preis) : "–") + '</span>' +
+          '<span class="acc-meta">' + hist.length + ' Läufe · ' + dShort(letzter.d) + '</span>' +
+          '<span class="acc-chev">›</span>' +
+        '</button>' +
+        '<div class="acc-body"><div class="hist">';
+
+    for (const r of hist.slice().reverse()) {
+      const pillClass = r.rate === "stornierbar" ? "pill gruen" : "pill";
+      const linkCell = r.link
+        ? '<a class="angebot" href="' + esc(r.link) + '" target="_blank" rel="noopener noreferrer">Angebot ↗</a>'
+        : '<span style="color:var(--faint);font-size:11.5px">–</span>';
+      html +=
+        '<div class="hrowline">' +
+          '<span class="hd">' + dShort(r.d) + '</span>' +
+          '<span class="hp">' + fmt(r.preis) + '</span>' +
+          '<span><span class="' + pillClass + '">' + esc(r.rate || "–") + '</span></span>' +
+          '<span class="hq" title="' + esc(r.quelle) + '">' + esc(r.quelle || "–") + '</span>' +
+          linkCell +
+          (r.notiz ? '<span class="hnote">' + esc(r.notiz) + '</span>' : "") +
+        '</div>';
+    }
+    html += '</div></div></div>';
+  });
+  wrap.innerHTML = html + '</div>';
+
+  // Auf-/Zuklappen; gemerkt wird der Zustand über wasOpen, damit ein
+  // Re-Render (Tabwechsel) nichts zurücksetzt.
+  wrap.querySelectorAll(".acc-head").forEach(btn => {
+    btn.addEventListener("click", () => {
+      const item = btn.closest(".acc-item");
+      const name = item.dataset.hotel;
+      const jetztOffen = !item.classList.contains("open");
+      item.classList.toggle("open", jetztOffen);
+      btn.setAttribute("aria-expanded", jetztOffen ? "true" : "false");
+      if (jetztOffen) wasOpen.add(name); else wasOpen.delete(name);
+    });
+  });
 }
 render();
 </script>
-<div class="stand-fuss">Automatisch erzeugt am 14.08.2026, 09:36 Uhr<br>Quelle: 05_Reisen/preistracking-daten.js in iCloud</div>
+<div class="stand-fuss">Automatisch erzeugt am 15.08.2026, 11:40 Uhr<br>Quelle: 05_Reisen/preistracking-daten.js in iCloud</div>
 </body>
 </html>
